@@ -1,0 +1,93 @@
+{
+  "name": "code-streamer",
+  "displayName": "Code Streamer",
+  "description": "The Gamified IDE Companion: AI 弹幕 + 虚拟打赏的“代码直播间”顶部横幅。",
+  "version": "0.0.1",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:codeStreamer.start"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codeStreamer.start",
+        "title": "Code Streamer: Start"
+      }
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "codeStreamer",
+          "title": "Code Streamer",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codeStreamer": [
+        {
+          "type": "webview",
+          "id": "codeStreamer.banner",
+          "name": "Live Banner"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Streamer",
+      "properties": {
+        "codeStreamer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用 Code Streamer。"
+        },
+        "codeStreamer.debounceMs": {
+          "type": "number",
+          "default": 1200,
+          "minimum": 200,
+          "description": "停手触发分析的防抖时间（毫秒）。"
+        },
+        "codeStreamer.llm.mode": {
+          "type": "string",
+          "default": "mock",
+          "enum": [
+            "mock",
+            "openaiCompatible"
+          ],
+          "description": "弹幕生成模式：mock（本地随机）或 OpenAI-compatible API。"
+        },
+        "codeStreamer.llm.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI-compatible Base URL（例如 DeepSeek 的兼容地址）。"
+        },
+        "codeStreamer.llm.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key（建议使用 Settings Sync 的 Secret Storage；此处先简单放设置项）。"
+        },
+        "codeStreamer.llm.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "模型名（OpenAI-compatible）。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.6.3"
+  }
+}
