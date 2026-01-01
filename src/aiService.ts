@@ -1,41 +1,14 @@
 import * as vscode from 'vscode';
-import { Danmaku, Persona } from './types';
-
-export const DEFAULT_PERSONAS: Persona[] = [
-  {
-    id: 'rookie',
-    name: '路人甲',
-    role: 'newbie',
-    description: '只会喊 666 的气氛组。',
-    avatar: '👤',
-    price: 0,
-    prompt: '你是一个友好的初级开发。你正在看直播。你说话很有礼貌，喜欢夸奖主播。经常用“牛逼”、“666”、“学到了”这类词。',
-    unlocked: true
-  },
-  {
-    id: 'jobs',
-    name: 'Steve Jobs',
-    role: 'hater',
-    description: '极简主义，完美主义，毒舌。',
-    avatar: '',
-    price: 1000,
-    prompt: '你扮演史蒂夫·乔布斯。你极度追求简洁。你痛恨复杂的逻辑和丑陋的代码。你会说 "It\'s not simple enough.", "This is garbage, rewrite it."。你的回复必须简短且刻薄。',
-    unlocked: false
-  },
-  {
-    id: 'linus',
-    name: 'Linus Torvalds',
-    role: 'pro',
-    description: '暴躁，硬核，对性能要求极高。',
-    avatar: '🐧',
-    price: 2000,
-    prompt: '你扮演 Linus Torvalds。你对代码性能和逻辑严密性有病态的要求。你看到烂代码会直接开骂。你喜欢说 "Talk is cheap, show me the code."。你非常专业但脾气极坏。',
-    unlocked: false
-  }
-];
+import { Danmaku } from './types';
 
 export class AIService {
-  async generateComments(code: string, activePersonas: Persona[]): Promise<Danmaku[]> {
+  private static readonly PERSONAS = [
+    { name: '小白', type: 'newbie' as const, templates: ['哇，这个{symbol}写得好高级！', '看不懂，但是觉得很牛逼的样子。', '大佬救命，这里为什么要这么写？'] },
+    { name: '黑粉', type: 'hater' as const, templates: ['又在写 Bug？内存要爆了！', '这种代码我奶奶都能写。', '建议转行，真的。', '这一行逻辑看得我血压升高。'] },
+    { name: '大佬', type: 'pro' as const, templates: ['建议这里用 Map 优化一下查找速度。', '注意这里的内存泄漏风险。', '这波重构思路不错，很有灵性。', '考虑一下并发情况下的安全性。'] }
+  ];
+
+  async generateComments(code: string): Promise<Danmaku[]> {
     const config = vscode.workspace.getConfiguration('codeStreamer');
     const mode = config.get<string>('llm.mode', 'mock');
 
@@ -46,34 +19,35 @@ export class AIService {
 
       if (apiKey && baseUrl) {
         try {
-          return await this.generateAIComments(code, activePersonas, apiKey, baseUrl, model);
+          return await this.generateAIComments(code, apiKey, baseUrl, model);
         } catch (error) {
           console.error('AI Service Error:', error);
+          return [{ id: 'err', text: '直播间网络波动...', type: 'system', author: '系统' }];
         }
       }
     }
 
-    return this.generateMockComments(activePersonas);
+    return this.generateMockComments();
   }
 
-  private async generateAIComments(code: string, activePersonas: Persona[], apiKey: string, baseUrl: string, model: string): Promise<Danmaku[]> {
-    const personaPrompts = activePersonas.map(p => `角色: ${p.name} (身份: ${p.role}), 特点: ${p.prompt}`).join('\n');
-    
+  private async generateAIComments(code: string, apiKey: string, baseUrl: string, model: string): Promise<Danmaku[]> {
     const prompt = `你是一个直播间观众模拟器。
 分析以下代码片段：
 \`\`\`
 ${code.substring(0, 1000)}
 \`\`\`
 
-当前直播间有以下观众正在观看：
-${personaPrompts}
+请生成 1-3 条有趣的弹幕评论。
+身份包括：
+- 小白 (newbie): 崇拜、看不懂、问基础问题
+- 黑粉 (hater): 吐槽、毒舌、挑刺
+- 大佬 (pro): 建议优化、指出潜在风险、技术讨论
 
-请根据这些观众的性格，生成 1-3 条有趣的评论。
-以 JSON 格式返回：
+以 JSON 格式返回，格式如下：
 [
-  { "text": "内容", "type": "newbie | hater | pro", "author": "角色名", "avatar": "角色头像", "donation": 0 }
+  { "text": "弹幕内容", "type": "newbie | hater | pro", "author": "昵称", "donation": 0 }
 ]
-如果是 Jobs 或 Linus，他们给出严厉批评时，可能会打赏 0；但如果他们偶尔觉得代码惊艳（极少见），可以打赏 1-100。
+如果觉得代码写得特别好或者有明显的冷笑话潜质，可以设置 donation 为 1-100 的整数。
 只返回 JSON。`;
 
     const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -85,54 +59,54 @@ ${personaPrompts}
       body: JSON.stringify({
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.8
+        temperature: 0.8,
+        response_format: { type: 'json_object' } // Some providers support this
       })
     });
 
-    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
 
     const data: any = await response.json();
-    let content = data.choices[0].message.content;
+    const content = data.choices[0].message.content;
     
-    // Simple JSON extractor for cases where LLM adds markdown
-    const jsonMatch = content.match(/\[\s*\{.*\}\s*\]/s);
-    if (jsonMatch) content = jsonMatch[0];
-
     try {
-      const parsed = JSON.parse(content);
+      // Handle cases where the model might return a wrapped object or the array directly
+      let parsed = JSON.parse(content);
+      if (parsed.danmaku) parsed = parsed.danmaku;
+      if (!Array.isArray(parsed)) {
+        if (typeof parsed === 'object') parsed = [parsed];
+        else throw new Error('Invalid JSON format');
+      }
+
       return parsed.map((item: any) => ({
         id: Math.random().toString(36).substr(2, 9),
-        text: item.text || item.content || '...',
+        text: item.text || '...',
         type: item.type || 'newbie',
         author: item.author || '匿名观众',
-        avatar: item.avatar || '👤',
         donation: item.donation || undefined
       }));
     } catch (e) {
-      return this.generateMockComments(activePersonas);
+      console.error('Failed to parse AI response:', content);
+      return this.generateMockComments();
     }
   }
 
-  private generateMockComments(activePersonas: Persona[]): Danmaku[] {
-    const personas = activePersonas.length > 0 ? activePersonas : [DEFAULT_PERSONAS[0]];
-    const count = Math.floor(Math.random() * 2) + 1;
+  private generateMockComments(): Danmaku[] {
+    const count = Math.floor(Math.random() * 3) + 1;
     const comments: Danmaku[] = [];
 
     for (let i = 0; i < count; i++) {
-      const p = personas[Math.floor(Math.random() * personas.length)];
-      let text = "...";
+      const persona = AIService.PERSONAS[Math.floor(Math.random() * AIService.PERSONAS.length)];
+      const template = persona.templates[Math.floor(Math.random() * persona.templates.length)];
       
-      if (p.id === 'rookie') text = "大佬 666！学到了学到了。";
-      else if (p.id === 'jobs') text = "It's not simple enough. Why so many lines?";
-      else if (p.id === 'linus') text = "This logic is a mess. Are you trying to crash the kernel?";
-
       comments.push({
         id: Math.random().toString(36).substr(2, 9),
-        text: text,
-        type: p.role,
-        author: p.name,
-        avatar: p.avatar,
-        donation: Math.random() > 0.9 ? Math.floor(Math.random() * 20) + 1 : undefined
+        text: template.replace('{symbol}', '逻辑'),
+        type: persona.type,
+        author: persona.name,
+        donation: Math.random() > 0.8 ? Math.floor(Math.random() * 50) + 1 : undefined
       });
     }
 

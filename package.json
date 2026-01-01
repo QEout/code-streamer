@@ -25,14 +25,14 @@
     "viewsContainers": {
       "panel": [
         {
-          "id": "codeStreamer",
+          "id": "codeStreamerContainer",
           "title": "Code Streamer",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "codeStreamer": [
+      "codeStreamerContainer": [
         {
           "type": "webview",
           "id": "codeStreamer.banner",
