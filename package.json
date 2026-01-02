@@ -12,7 +12,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:codeStreamer.start"
+    "onCommand:codeStreamer.start",
+    "onCommand:codeStreamer.openChatInput"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -20,6 +21,28 @@
       {
         "command": "codeStreamer.start",
         "title": "Code Streamer: Start"
+      },
+      {
+        "command": "codeStreamer.focus",
+        "title": "Code Streamer: Focus Panel",
+        "icon": "$(play)"
+      },
+      {
+        "command": "codeStreamer.refreshViewers",
+        "title": "Code Streamer: Refresh Viewers",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "codeStreamer.openChatInput",
+        "title": "Code Streamer: Open Chat Input",
+        "icon": "$(comment)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "codeStreamer.openChatInput",
+        "key": "ctrl+alt+enter",
+        "when": "editorTextFocus"
       }
     ],
     "viewsContainers": {
@@ -77,6 +100,16 @@
           "type": "string",
           "default": "gpt-4o-mini",
           "description": "模型名（OpenAI-compatible）。"
+        },
+        "codeStreamer.enableOfficialSource": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否从官方源加载观众列表（GitHub Pages）。"
+        },
+        "codeStreamer.officialSourceUrl": {
+          "type": "string",
+          "default": "https://your-username.github.io/code-streamer/viewers.json",
+          "description": "官方观众列表源地址（GitHub Pages URL）。"
         }
       }
     }

@@ -1,0 +1,58 @@
+{
+  "version": "1.0.0",
+  "description": "观众列表配置 - 定义可购买的观众",
+  "officialSource": "https://your-username.github.io/code-streamer/viewers.json",
+  "viewers": [
+    {
+      "id": "viewer_anonymous",
+      "name": "路人甲",
+      "emoji": "🔘",
+      "price": 0,
+      "unlocked": true,
+      "avatar": "👤",
+      "description": "免费观众",
+      "prompts": [
+        "这个代码看起来不错",
+        "学到了",
+        "666"
+      ],
+      "messageBackground": "",
+      "tag": "萌新"
+    },
+    {
+      "id": "viewer_linus",
+      "name": "林纳斯",
+      "emoji": "⚪",
+      "price": 2000,
+      "unlocked": false,
+      "avatar": "🐧",
+      "description": "Linux 和 Git 之父",
+      "sponsor": null,
+      "prompts": [
+        "这个实现方式可以优化一下",
+        "建议考虑性能问题",
+        "代码结构不错，但可以更简洁"
+      ],
+      "messageBackground": "",
+      "tag": "大佬"
+    },
+    {
+      "id": "viewer_jobs",
+      "name": "乔布斯",
+      "emoji": "✅",
+      "price": 1000,
+      "unlocked": false,
+      "avatar": "🍎",
+      "description": "Apple 创始人",
+      "sponsor": null,
+      "prompts": [
+        "设计很简洁",
+        "用户体验很重要",
+        "保持简单"
+      ],
+      "messageBackground": "",
+      "tag": "VIP"
+    }
+  ]
+}
+

@@ -1,12 +1,16 @@
 import * as vscode from 'vscode';
-import { Danmaku } from './types';
+import { Danmaku, Persona, Viewer } from './types';
+import { PersonaService } from './personaService';
+import { ViewerService } from './viewerService';
 
 export class AIService {
-  private static readonly PERSONAS = [
-    { name: '小白', type: 'newbie' as const, templates: ['哇，这个{symbol}写得好高级！', '看不懂，但是觉得很牛逼的样子。', '大佬救命，这里为什么要这么写？'] },
-    { name: '黑粉', type: 'hater' as const, templates: ['又在写 Bug？内存要爆了！', '这种代码我奶奶都能写。', '建议转行，真的。', '这一行逻辑看得我血压升高。'] },
-    { name: '大佬', type: 'pro' as const, templates: ['建议这里用 Map 优化一下查找速度。', '注意这里的内存泄漏风险。', '这波重构思路不错，很有灵性。', '考虑一下并发情况下的安全性。'] }
-  ];
+  private personaService: PersonaService;
+  private viewerService?: ViewerService;
+
+  constructor(personaService: PersonaService, viewerService?: ViewerService) {
+    this.personaService = personaService;
+    this.viewerService = viewerService;
+  }
 
   async generateComments(code: string): Promise<Danmaku[]> {
     const config = vscode.workspace.getConfiguration('codeStreamer');
@@ -80,13 +84,28 @@ ${code.substring(0, 1000)}
         else throw new Error('Invalid JSON format');
       }
 
-      return parsed.map((item: any) => ({
+      const comments = parsed.map((item: any) => ({
         id: Math.random().toString(36).substr(2, 9),
         text: item.text || '...',
         type: item.type || 'newbie',
         author: item.author || '匿名观众',
         donation: item.donation || undefined
       }));
+
+      // 从观众列表补充信息
+      if (this.viewerService) {
+        const viewers = this.viewerService.getViewers();
+        comments.forEach(c => {
+          const viewer = viewers.find(v => v.name === c.author || v.name.includes(c.author) || c.author.includes(v.name));
+          if (viewer && viewer.unlocked) {
+            c.avatar = viewer.avatar;
+            c.tag = viewer.tag;
+            c.messageBackground = viewer.messageBackground || undefined;
+          }
+        });
+      }
+
+      return comments;
     } catch (e) {
       console.error('Failed to parse AI response:', content);
       return this.generateMockComments();
@@ -97,16 +116,57 @@ ${code.substring(0, 1000)}
     const count = Math.floor(Math.random() * 3) + 1;
     const comments: Danmaku[] = [];
 
+    // 优先从观众列表中选择已解锁的观众
+    let availableViewers: Viewer[] = [];
+    if (this.viewerService) {
+      availableViewers = this.viewerService.getViewers().filter(v => v.unlocked && v.prompts && v.prompts.length > 0);
+    }
+
     for (let i = 0; i < count; i++) {
-      const persona = AIService.PERSONAS[Math.floor(Math.random() * AIService.PERSONAS.length)];
-      const template = persona.templates[Math.floor(Math.random() * persona.templates.length)];
+      let viewer: Viewer | null = null;
+      let text = '';
+      let author = '';
+      let type: 'newbie' | 'hater' | 'pro' | 'system' = 'newbie';
+      let avatar = '';
+      let tag = '';
+      let messageBackground = '';
+
+      // 如果有可用的观众，优先使用观众
+      if (availableViewers.length > 0 && Math.random() > 0.3) {
+        viewer = availableViewers[Math.floor(Math.random() * availableViewers.length)];
+        const prompts = viewer.prompts || [];
+        if (prompts.length > 0) {
+          text = prompts[Math.floor(Math.random() * prompts.length)];
+          author = viewer.name;
+          avatar = viewer.avatar;
+          tag = viewer.tag || '';
+          messageBackground = viewer.messageBackground || '';
+          // 根据标签推断类型
+          if (tag.includes('大佬') || tag.includes('pro')) type = 'pro';
+          else if (tag.includes('黑粉') || tag.includes('hater')) type = 'hater';
+          else if (tag.includes('VIP')) type = 'pro';
+          else type = 'newbie';
+        }
+      }
+
+      // 如果没有观众或随机选择使用 Persona
+      if (!viewer || !text) {
+        const persona = this.personaService.getRandomPersona();
+        const template = persona.templates[Math.floor(Math.random() * persona.templates.length)];
+        text = template.replace('{symbol}', '逻辑');
+        author = persona.name;
+        type = persona.type;
+      }
       
       comments.push({
         id: Math.random().toString(36).substr(2, 9),
-        text: template.replace('{symbol}', '逻辑'),
-        type: persona.type,
-        author: persona.name,
-        donation: Math.random() > 0.8 ? Math.floor(Math.random() * 50) + 1 : undefined
+        text,
+        type,
+        author,
+        donation: Math.random() > 0.8 ? Math.floor(Math.random() * 50) + 1 : undefined,
+        avatar: avatar || undefined,
+        tag: tag || undefined,
+        messageBackground: messageBackground || undefined
       });
     }
 
