@@ -1,15 +1,18 @@
 import * as vscode from 'vscode';
-import { Danmaku, StreamState, Viewer } from './types';
+import { ChatMessage, StreamState, Viewer } from './types';
 import { ViewerService } from './viewerService';
 
 export class BannerViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'codeStreamer.banner';
   private _view?: vscode.WebviewView;
   public onVisibilityChange?: (visible: boolean) => void;
-  private viewerService?: ViewerService;
-  private pendingComposer?: { visible: boolean; focus: boolean };
+    private viewerService?: ViewerService;
+    private pendingComposer?: { visible: boolean; focus: boolean };
 
-  constructor(private readonly _extensionUri: vscode.Uri) {}
+    private static readonly OFFICIAL_ROLES_URL = 'https://xxxx.com';
+    private static readonly GITHUB_STAR_URL = 'https://github.com/QEout/code-streamer';
+
+    constructor(private readonly _extensionUri: vscode.Uri) {}
 
   public setViewerService(service: ViewerService): void {
     this.viewerService = service;
@@ -56,11 +59,47 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
             webviewView.webview.postMessage({ type: 'setComposer', data: this.pendingComposer });
             this.pendingComposer = undefined;
           }
+
+          // 初始消息：根据 LLM 配置决定文案
+          const cfg = vscode.workspace.getConfiguration('codeStreamer');
+          const apiKey = String(cfg.get<string>('llm.apiKey', '') || '').trim();
+          const baseUrl = String(cfg.get<string>('llm.baseUrl', '') || '').trim();
+          // 先发一条“欢迎词”，更像直播间开场
+          this.addMessages([
+            {
+              id: 'welcome',
+              type: 'system',
+              author: '系统',
+              text: '欢迎来到直播间！开写开写～'
+            }
+          ]);
+
+          // 再根据配置补一条引导/提示
+          if (!apiKey || !baseUrl) {
+            this.addMessages([
+              {
+                id: 'need_config',
+                type: 'system',
+                author: '系统',
+                text: '先去配置一下 Base URL 和 API Key吧。',
+                action: 'openSettings'
+              }
+            ]);
+          } else {
+            this.addMessages([
+              {
+                id: 'live_tip',
+                type: 'system',
+                author: '系统',
+                text: 'AI 已就位：开始改代码，观众弹幕马上到。'
+              }
+            ]);
+          }
           break;
         case 'userChat': {
           const text = String((data as any).text ?? '').trim();
           if (!text) return;
-          this.addDanmaku([
+          this.addMessages([
             {
               id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
               text,
@@ -68,6 +107,28 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
               author: 'Me'
             }
           ]);
+          break;
+        }
+        case 'fetchModels': {
+          const { baseUrl, apiKey } = data;
+          if (!baseUrl || !apiKey) return;
+          
+          try {
+            const url = `${baseUrl.replace(/\/$/, '')}/models`;
+            const res = await fetch(url, {
+              headers: { 'Authorization': `Bearer ${apiKey}` }
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const json: any = await res.json();
+            const models = Array.isArray(json?.data) ? json.data.map((m: any) => m.id) : [];
+            
+            if (this._view && models.length > 0) {
+              this._view.webview.postMessage({ type: 'modelList', data: models });
+            }
+          } catch (e) {
+            console.error('Fetch models failed:', e);
+          }
           break;
         }
         case 'openSettings':
@@ -83,14 +144,10 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({
               type: 'settingsData',
               data: {
-                enabled: config.get<boolean>('enabled', true),
                 debounceMs: config.get<number>('debounceMs', 1200),
-                llmMode: config.get<string>('llm.mode', 'mock'),
                 llmBaseUrl: config.get<string>('llm.baseUrl', ''),
                 llmApiKey: config.get<string>('llm.apiKey', ''),
-                llmModel: config.get<string>('llm.model', 'gpt-4o-mini'),
-                enableOfficialSource: config.get<boolean>('enableOfficialSource', true),
-                officialSourceUrl: config.get<string>('officialSourceUrl', '')
+                llmModel: config.get<string>('llm.model', 'gpt-4o-mini')
               }
             });
           }
@@ -101,6 +158,15 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
           const settingConfig = vscode.workspace.getConfiguration('codeStreamer');
           await settingConfig.update(key, value, vscode.ConfigurationTarget.Global);
           break;
+        case 'openMoreViewers':
+          vscode.env.openExternal(vscode.Uri.parse('https://xxxx.com'));
+          break;
+        case 'openOfficialRoles':
+          vscode.env.openExternal(vscode.Uri.parse(BannerViewProvider.OFFICIAL_ROLES_URL));
+          break;
+        case 'openGitHubStar':
+          vscode.env.openExternal(vscode.Uri.parse(BannerViewProvider.GITHUB_STAR_URL));
+          break;
         case 'showWarning':
           vscode.window.showWarningMessage(data.text);
           break;
@@ -108,9 +174,9 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  public addDanmaku(danmaku: Danmaku[]) {
+  public addMessages(messages: ChatMessage[]) {
     if (this._view) {
-      this._view.webview.postMessage({ type: 'addDanmaku', data: danmaku });
+      this._view.webview.postMessage({ type: 'addMessages', data: messages });
     }
   }
 
@@ -123,6 +189,12 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
   public updateViewers(viewers: Viewer[]) {
     if (this._view) {
       this._view.webview.postMessage({ type: 'updateViewers', data: viewers });
+    }
+  }
+
+  public showSettings(): void {
+    if (this._view) {
+      this._view.webview.postMessage({ type: 'showSettings' });
     }
   }
 
@@ -513,6 +585,30 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
             border-color: var(--vscode-focusBorder);
         }
 
+        /* Settings CTA */
+        .cta-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .cta-primary {
+            background: linear-gradient(135deg, #6d28d9, #2563eb);
+            color: #fff;
+            border: none;
+        }
+        .cta-primary:hover {
+            filter: brightness(1.05);
+        }
+        .cta-secondary {
+            background: transparent;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            color: var(--vscode-foreground);
+        }
+        .cta-secondary:hover {
+            background: var(--vscode-list-hoverBackground);
+        }
+
         .chat-messages {
             flex: 1;
             overflow-y: auto;
@@ -711,14 +807,6 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
                 <div class="settings-group">
                     <div class="settings-group-title">基础设置</div>
                     <div class="settings-item">
-                        <label class="settings-label">启用 Code Streamer</label>
-                        <div class="settings-description">是否启用 Code Streamer 功能</div>
-                        <label class="settings-checkbox">
-                            <input type="checkbox" id="setting-enabled" />
-                            <span>启用</span>
-                        </label>
-                    </div>
-                    <div class="settings-item">
                         <label class="settings-label" for="setting-debounceMs">防抖时间（毫秒）</label>
                         <div class="settings-description">停手触发分析的防抖时间</div>
                         <input type="number" id="setting-debounceMs" class="settings-input" min="200" />
@@ -727,17 +815,9 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
                 <div class="settings-group">
                     <div class="settings-group-title">AI 弹幕设置</div>
                     <div class="settings-item">
-                        <label class="settings-label" for="setting-llmMode">弹幕生成模式</label>
-                        <div class="settings-description">mock（本地随机）或 OpenAI-compatible API</div>
-                        <select id="setting-llmMode" class="settings-select">
-                            <option value="mock">mock</option>
-                            <option value="openaiCompatible">openaiCompatible</option>
-                        </select>
-                    </div>
-                    <div class="settings-item">
                         <label class="settings-label" for="setting-llmBaseUrl">Base URL</label>
-                        <div class="settings-description">OpenAI-compatible Base URL（例如 DeepSeek 的兼容地址）</div>
-                        <input type="text" id="setting-llmBaseUrl" class="settings-input" placeholder="https://api.deepseek.com" />
+                        <div class="settings-description">OpenAI-compatible Base URL（通常以 /v1 结尾）</div>
+                        <input type="text" id="setting-llmBaseUrl" class="settings-input" placeholder="https://api.deepseek.com/v1" />
                     </div>
                     <div class="settings-item">
                         <label class="settings-label" for="setting-llmApiKey">API Key</label>
@@ -747,23 +827,17 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
                     <div class="settings-item">
                         <label class="settings-label" for="setting-llmModel">模型名</label>
                         <div class="settings-description">模型名（OpenAI-compatible）</div>
-                        <input type="text" id="setting-llmModel" class="settings-input" placeholder="gpt-4o-mini" />
+                        <input type="text" id="setting-llmModel" class="settings-input" placeholder="gpt-4o-mini" list="model-list" />
+                        <datalist id="model-list"></datalist>
                     </div>
                 </div>
                 <div class="settings-group">
-                    <div class="settings-group-title">观众列表设置</div>
+                    <div class="settings-group-title">链接</div>
                     <div class="settings-item">
-                        <label class="settings-label">从官方源加载</label>
-                        <div class="settings-description">是否从官方源加载观众列表（GitHub Pages）</div>
-                        <label class="settings-checkbox">
-                            <input type="checkbox" id="setting-enableOfficialSource" />
-                            <span>启用</span>
-                        </label>
-                    </div>
-                    <div class="settings-item">
-                        <label class="settings-label" for="setting-officialSourceUrl">官方源地址</label>
-                        <div class="settings-description">官方观众列表源地址（GitHub Pages URL）</div>
-                        <input type="text" id="setting-officialSourceUrl" class="settings-input" placeholder="https://..." />
+                        <div class="cta-row">
+                            <button id="btn-roles" class="action-btn cta-primary">🎨 获取更多角色 (前往官网)</button>
+                            <button id="btn-star" class="action-btn cta-secondary">⭐ 在 GitHub 上点星 (Star)</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -929,6 +1003,16 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
             // 优先使用消息中的头像，否则从观众映射中获取
             const avatarChar = d.avatar || viewerAvatarMap[d.author] || getAvatarFallback(d.author);
 
+            // 可点击动作（例如打开设置/跳转）
+            let actionHtml = '';
+            if (d.action === 'openSettings') {
+                actionHtml = '<button class="action-btn" data-action="openSettings" style="margin-top:6px; padding:4px 8px; width:auto; display:inline-block;">打开设置</button>';
+            } else if (d.action === 'openGitHubStar') {
+                actionHtml = '<button class="action-btn" data-action="openGitHubStar" style="margin-top:6px; padding:4px 8px; width:auto; display:inline-block;">点击跳转</button>';
+            } else if (d.action === 'openOfficialRoles') {
+                actionHtml = '<button class="action-btn" data-action="openOfficialRoles" style="margin-top:6px; padding:4px 8px; width:auto; display:inline-block;">前往官网</button>';
+            }
+
             // 打赏消息特殊布局
             const donationTag = d.donation ? \`
                 <div class="donation-tag">
@@ -945,11 +1029,21 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
                         <div class="chat-author-name">\${d.author || '匿名'}</div>
                     </div>
                     <div class="chat-text">\${d.text}</div>
+                    \${actionHtml}
                     \${donationTag}
                 </div>
             \`;
 
             chatMessages.appendChild(div);
+
+            // action click
+            const actionBtn = div.querySelector('[data-action]');
+            if (actionBtn) {
+                actionBtn.addEventListener('click', (e) => {
+                    const t = e.currentTarget?.getAttribute?.('data-action');
+                    if (t) vscodeApi?.postMessage({ type: t });
+                });
+            }
             
             // Trigger FX if donation
             if (d.donation) {
@@ -983,7 +1077,7 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
         window.addEventListener('message', event => {
             const msg = event.data;
             switch (msg.type) {
-                case 'addDanmaku': msg.data.forEach(addMessage); break;
+                case 'addMessages': msg.data.forEach(addMessage); break;
                 case 'updateState': 
                     donationsEl.innerText = '$' + msg.data.totalDonations.toLocaleString();
                     viewersEl.innerText = msg.data.viewerCount.toLocaleString();
@@ -995,17 +1089,35 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
                 case 'toggleSettings':
                     toggleSettings();
                     break;
+                case 'showSettings':
+                    if (!settingsVisible) {
+                        toggleSettings();
+                    } else if (vscodeApi) {
+                        vscodeApi.postMessage({ type: 'getSettings' });
+                    }
+                    break;
                 case 'settingsData':
                     // 更新设置面板的值
                     const data = msg.data;
-                    settingEnabled.checked = data.enabled;
                     settingDebounceMs.value = data.debounceMs;
-                    settingLlmMode.value = data.llmMode;
                     settingLlmBaseUrl.value = data.llmBaseUrl;
                     settingLlmApiKey.value = data.llmApiKey;
                     settingLlmModel.value = data.llmModel;
-                    settingEnableOfficialSource.checked = data.enableOfficialSource;
-                    settingOfficialSourceUrl.value = data.officialSourceUrl;
+                    // 如果有 URL 和 Key，自动拉取模型列表
+                    if (data.llmBaseUrl && data.llmApiKey) {
+                        vscodeApi?.postMessage({ 
+                            type: 'fetchModels', 
+                            baseUrl: data.llmBaseUrl, 
+                            apiKey: data.llmApiKey 
+                        });
+                    }
+                    break;
+                case 'modelList':
+                    // 更新模型 datalist
+                    const datalist = document.getElementById('model-list');
+                    if (datalist && Array.isArray(msg.data)) {
+                        datalist.innerHTML = msg.data.map(id => '<option value="' + id + '">').join('');
+                    }
                     break;
             }
         });
@@ -1059,14 +1171,12 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
         };
 
         // 设置项元素
-        const settingEnabled = document.getElementById('setting-enabled');
         const settingDebounceMs = document.getElementById('setting-debounceMs');
-        const settingLlmMode = document.getElementById('setting-llmMode');
         const settingLlmBaseUrl = document.getElementById('setting-llmBaseUrl');
         const settingLlmApiKey = document.getElementById('setting-llmApiKey');
         const settingLlmModel = document.getElementById('setting-llmModel');
-        const settingEnableOfficialSource = document.getElementById('setting-enableOfficialSource');
-        const settingOfficialSourceUrl = document.getElementById('setting-officialSourceUrl');
+        const btnRoles = document.getElementById('btn-roles');
+        const btnStar = document.getElementById('btn-star');
 
         // 更新设置值的函数
         function updateSettingValue(key, value) {
@@ -1076,9 +1186,13 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
         }
 
         // 绑定设置项事件
-        settingEnabled.addEventListener('change', (e) => {
-            updateSettingValue('enabled', e.target.checked);
-        });
+        const triggerFetchModels = () => {
+            const url = settingLlmBaseUrl.value.trim();
+            const key = settingLlmApiKey.value.trim();
+            if (url && key) {
+                vscodeApi?.postMessage({ type: 'fetchModels', baseUrl: url, apiKey: key });
+            }
+        };
 
         settingDebounceMs.addEventListener('change', (e) => {
             const value = parseInt(e.target.value);
@@ -1087,28 +1201,26 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        settingLlmMode.addEventListener('change', (e) => {
-            updateSettingValue('llm.mode', e.target.value);
-        });
-
         settingLlmBaseUrl.addEventListener('change', (e) => {
             updateSettingValue('llm.baseUrl', e.target.value);
+            triggerFetchModels();
         });
 
         settingLlmApiKey.addEventListener('change', (e) => {
             updateSettingValue('llm.apiKey', e.target.value);
+            triggerFetchModels();
         });
 
         settingLlmModel.addEventListener('change', (e) => {
             updateSettingValue('llm.model', e.target.value);
         });
 
-        settingEnableOfficialSource.addEventListener('change', (e) => {
-            updateSettingValue('enableOfficialSource', e.target.checked);
+        btnRoles?.addEventListener('click', () => {
+            vscodeApi?.postMessage({ type: 'openOfficialRoles' });
         });
 
-        settingOfficialSourceUrl.addEventListener('change', (e) => {
-            updateSettingValue('officialSourceUrl', e.target.value);
+        btnStar?.addEventListener('click', () => {
+            vscodeApi?.postMessage({ type: 'openGitHubStar' });
         });
 
         chatInput.addEventListener('keydown', (e) => {
@@ -1128,13 +1240,6 @@ export class BannerViewProvider implements vscode.WebviewViewProvider {
         // Init
         if (vscodeApi) {
             vscodeApi.postMessage({ type: 'ready' });
-            // 直播开启欢迎语
-            addMessage({
-                id: 'welcome',
-                type: 'system',
-                author: '系统',
-                text: '🔴 直播已开启！Start coding to impress your audience!'
-            });
         }
 
     </script>

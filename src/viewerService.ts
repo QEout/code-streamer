@@ -1,12 +1,11 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Viewer, ViewersConfig } from './types';
+import { Viewer } from './types';
 
 export class ViewerService {
   private viewers: Viewer[] = [];
   private configPath: string;
-  private officialSource: string = 'https://your-username.github.io/code-streamer/viewers.json';
   private context: vscode.ExtensionContext;
 
   private loadPromise: Promise<void>;
@@ -24,72 +23,18 @@ export class ViewerService {
 
   private async loadViewers(): Promise<void> {
     try {
-      // 先尝试从本地加载
+      // 仅从本地加载（官方源功能已移除）
       if (fs.existsSync(this.configPath)) {
         const content = fs.readFileSync(this.configPath, 'utf-8');
-        const config: ViewersConfig = JSON.parse(content);
-        this.viewers = config.viewers || [];
-        this.officialSource = config.officialSource || this.officialSource;
+        const config: any = JSON.parse(content);
+        const viewers = Array.isArray(config?.viewers) ? config.viewers : [];
+        this.viewers = viewers.map((v: Viewer) => this.normalizeViewer(v));
       } else {
         this.viewers = this.getDefaultViewers();
       }
-
-      // 尝试从官方源加载（异步，不阻塞）
-      this.loadFromOfficialSource().catch(err => {
-        console.log('Failed to load from official source, using local:', err);
-      });
     } catch (error) {
       console.error('Failed to load viewers:', error);
       this.viewers = this.getDefaultViewers();
-    }
-  }
-
-  private async loadFromOfficialSource(): Promise<void> {
-    try {
-      const config = vscode.workspace.getConfiguration('codeStreamer');
-      const enableOfficialSource = config.get<boolean>('enableOfficialSource', true);
-      
-      if (!enableOfficialSource) {
-        return;
-      }
-
-      // 从配置中读取官方源地址，如果没有则使用默认值
-      const customSource = config.get<string>('officialSourceUrl', '');
-      const sourceUrl = customSource || this.officialSource;
-
-      const response = await fetch(sourceUrl, {
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const remoteConfig: ViewersConfig = await response.json();
-      
-      // 合并远程和本地配置：远程优先，但保留本地已解锁的观众
-      const localUnlocked = this.viewers.filter(v => v.unlocked).map(v => v.id);
-      const mergedViewers = remoteConfig.viewers.map(remoteViewer => {
-        const localViewer = this.viewers.find(v => v.id === remoteViewer.id);
-        return {
-          ...remoteViewer,
-          // 如果本地已解锁，保持解锁状态
-          unlocked: localUnlocked.includes(remoteViewer.id) ? true : remoteViewer.unlocked
-        };
-      });
-
-      // 添加本地独有的观众（不在远程列表中的）
-      const remoteIds = new Set(remoteConfig.viewers.map(v => v.id));
-      const localOnly = this.viewers.filter(v => !remoteIds.has(v.id));
-      
-      this.viewers = [...mergedViewers, ...localOnly];
-      
-      console.log('Loaded viewers from official source');
-    } catch (error) {
-      // 静默失败，使用本地配置
-      console.log('Could not load from official source:', error);
     }
   }
 
@@ -140,6 +85,15 @@ export class ViewerService {
         tag: 'VIP'
       }
     ];
+  }
+
+  private normalizeViewer(viewer: Viewer): Viewer {
+    return {
+      ...viewer,
+      prompts: Array.isArray((viewer as any).prompts) ? (viewer as any).prompts : [],
+      messageBackground: (viewer as any).messageBackground ?? '',
+      tag: (viewer as any).tag ?? undefined
+    };
   }
 }
 

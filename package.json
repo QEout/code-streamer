@@ -4,6 +4,10 @@
   "description": "The Gamified IDE Companion: AI 弹幕 + 虚拟打赏的“代码直播间”顶部横幅。",
   "version": "0.0.1",
   "publisher": "local",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/QEout/code-streamer"
+  },
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -66,25 +70,11 @@
     "configuration": {
       "title": "Code Streamer",
       "properties": {
-        "codeStreamer.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "是否启用 Code Streamer。"
-        },
         "codeStreamer.debounceMs": {
           "type": "number",
           "default": 1200,
           "minimum": 200,
           "description": "停手触发分析的防抖时间（毫秒）。"
-        },
-        "codeStreamer.llm.mode": {
-          "type": "string",
-          "default": "mock",
-          "enum": [
-            "mock",
-            "openaiCompatible"
-          ],
-          "description": "弹幕生成模式：mock（本地随机）或 OpenAI-compatible API。"
         },
         "codeStreamer.llm.baseUrl": {
           "type": "string",
@@ -100,16 +90,6 @@
           "type": "string",
           "default": "gpt-4o-mini",
           "description": "模型名（OpenAI-compatible）。"
-        },
-        "codeStreamer.enableOfficialSource": {
-          "type": "boolean",
-          "default": true,
-          "description": "是否从官方源加载观众列表（GitHub Pages）。"
-        },
-        "codeStreamer.officialSourceUrl": {
-          "type": "string",
-          "default": "https://your-username.github.io/code-streamer/viewers.json",
-          "description": "官方观众列表源地址（GitHub Pages URL）。"
         }
       }
     }

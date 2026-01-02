@@ -1,15 +1,13 @@
 import * as vscode from 'vscode';
 import { BannerViewProvider } from './bannerViewProvider';
 import { AIService } from './aiService';
-import { PersonaService } from './personaService';
 import { ViewerService } from './viewerService';
 import { StreamState } from './types';
 
 export function activate(context: vscode.ExtensionContext) {
   const bannerProvider = new BannerViewProvider(context.extensionUri);
-  const personaService = new PersonaService(context);
   const viewerService = new ViewerService(context);
-  const aiService = new AIService(personaService, viewerService);
+  const aiService = new AIService(viewerService);
 
   let totalDonations = context.globalState.get<number>('totalDonations', 0);
   let viewerCount = 1205 + Math.floor(Math.random() * 200);
@@ -102,8 +100,6 @@ export function activate(context: vscode.ExtensionContext) {
   }, 5000);
 
   const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
-    if (!vscode.workspace.getConfiguration('codeStreamer').get('enabled')) return;
-    
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
@@ -117,14 +113,45 @@ export function activate(context: vscode.ExtensionContext) {
       if (content.length < 10) return;
 
       console.log('Code Streamer: Analyzing code change...');
-      const comments = await aiService.generateComments(content);
-      console.log(`Code Streamer: Generated ${comments.length} comments.`);
+      // 未配置：不刷聊天区，只走 VSCode 通知
+      const cfg = vscode.workspace.getConfiguration('codeStreamer');
+      const apiKey = String(cfg.get<string>('llm.apiKey', '') || '').trim();
+      const baseUrl = String(cfg.get<string>('llm.baseUrl', '') || '').trim();
+      if (!apiKey || !baseUrl) {
+        vscode.window
+          .showErrorMessage('未配置 AI 弹幕：请在「⚙️ 设置」中填写 Base URL 与 API Key。', '打开设置')
+          .then(sel => {
+            if (sel === '打开设置') {
+              vscode.commands.executeCommand('codeStreamer.focus');
+              bannerProvider.showSettings();
+            }
+          });
+        return;
+      }
+
+      let messages;
+      try {
+        messages = await aiService.generateMessages(content);
+      } catch (error: any) {
+        const msg = typeof error?.message === 'string' ? error.message : '请求失败';
+        vscode.window
+          .showErrorMessage(`AI 请求失败：${msg}`, '打开设置')
+          .then(sel => {
+            if (sel === '打开设置') {
+              vscode.commands.executeCommand('codeStreamer.focus');
+              bannerProvider.showSettings();
+            }
+          });
+        return;
+      }
+
+      console.log(`Code Streamer: Generated ${messages.length} messages.`);
       
-      comments.forEach(c => {
+      messages.forEach(c => {
         if (c.donation) {
           totalDonations += c.donation;
         }
-        // 如果弹幕还没有观众信息，尝试从观众列表补充
+        // 如果消息还没有观众信息，尝试从观众列表补充
         if (!c.avatar || !c.tag) {
           const viewers = viewerService.getViewers();
           const viewer = viewers.find(v => v.name === c.author || v.name.includes(c.author) || c.author.includes(v.name));
@@ -138,17 +165,32 @@ export function activate(context: vscode.ExtensionContext) {
 
       context.globalState.update('totalDonations', totalDonations);
       bannerProvider.updateState({ totalDonations, viewerCount, lastUpdate: Date.now() });
-      bannerProvider.addDanmaku(comments);
+      bannerProvider.addMessages(messages);
       updateStatusBar();
+
+      // 累计收益 >= 1000 触发一次求 Star
+      const hasAskedForStar = context.globalState.get<boolean>('hasAskedForStar', false);
+      if (!hasAskedForStar && totalDonations >= 1000) {
+        context.globalState.update('hasAskedForStar', true);
+        bannerProvider.addMessages([
+          {
+            id: 'star_req',
+            type: 'system',
+            author: '系统',
+            text: '看来你已经是个成熟的主播了！去 GitHub 给作者点个 Star 鼓励一下吧？',
+            action: 'openGitHubStar'
+          }
+        ]);
+      }
 
       // 检查是否有重要消息（比如乔布斯、Linus等知名人物）
       const importantAuthors = ['乔布斯', 'Steve Jobs', 'Linus', 'Linus Torvalds'];
-      const hasImportantMessage = comments.some(c => 
+      const hasImportantMessage = messages.some(c => 
         c.author && importantAuthors.some(author => c.author!.includes(author))
       );
       
       if (hasImportantMessage && !isPanelVisible) {
-        const importantComment = comments.find(c => 
+        const importantComment = messages.find(c => 
           c.author && importantAuthors.some(author => c.author!.includes(author))
         );
         if (importantComment) {
