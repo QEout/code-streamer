@@ -7,6 +7,7 @@ export class ViewerService {
   private viewers: Viewer[] = [];
   private configPath: string;
   private context: vscode.ExtensionContext;
+  private unlockedViewerIds: Set<string> = new Set();
 
   private loadPromise: Promise<void>;
 
@@ -14,6 +15,11 @@ export class ViewerService {
     this.context = context;
     const extensionPath = context.extensionPath;
     this.configPath = path.join(extensionPath, 'prompts', 'viewers.json');
+    
+    // Load persisted unlocked viewers
+    const unlocked = this.context.globalState.get<string[]>('unlockedViewers', []);
+    this.unlockedViewerIds = new Set(unlocked);
+
     this.loadPromise = this.loadViewers();
   }
 
@@ -36,6 +42,27 @@ export class ViewerService {
       console.error('Failed to load viewers:', error);
       this.viewers = this.getDefaultViewers();
     }
+  }
+
+  public checkUnlock(totalDonations: number): Viewer[] {
+    const newlyUnlocked: Viewer[] = [];
+    let stateChanged = false;
+
+    this.viewers.forEach(v => {
+      // 这里的 v 是内存中的对象，可以直接修改
+      if (!v.unlocked && v.price > 0 && totalDonations >= v.price) {
+        v.unlocked = true;
+        this.unlockedViewerIds.add(v.id);
+        newlyUnlocked.push(v);
+        stateChanged = true;
+      }
+    });
+
+    if (stateChanged) {
+      this.context.globalState.update('unlockedViewers', Array.from(this.unlockedViewerIds));
+    }
+
+    return newlyUnlocked;
   }
 
   public getViewers(): Viewer[] {
@@ -88,12 +115,19 @@ export class ViewerService {
   }
 
   private normalizeViewer(viewer: Viewer): Viewer {
-    return {
+    const normalized = {
       ...viewer,
       prompts: Array.isArray((viewer as any).prompts) ? (viewer as any).prompts : [],
       messageBackground: (viewer as any).messageBackground ?? '',
       tag: (viewer as any).tag ?? undefined
     };
+
+    // Apply unlock status from global state
+    if (this.unlockedViewerIds.has(normalized.id)) {
+      normalized.unlocked = true;
+    }
+    
+    return normalized;
   }
 }
 

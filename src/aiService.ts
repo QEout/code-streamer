@@ -4,12 +4,49 @@ import { ViewerService } from './viewerService';
 
 export class AIService {
   private viewerService: ViewerService;
+  private projectContext: string = '';
 
   constructor(viewerService: ViewerService) {
     this.viewerService = viewerService;
+    this.detectProjectContext();
   }
 
-  async generateMessages(code: string): Promise<ChatMessage[]> {
+  public async detectProjectContext() {
+    try {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) return;
+
+      const root = folders[0].uri;
+      const files = await vscode.workspace.findFiles(new vscode.RelativePattern(root, '{package.json,go.mod,Cargo.toml,requirements.txt,pom.xml,build.gradle,pubspec.yaml}'), null, 10);
+      
+      const keywords: string[] = [];
+      for (const file of files) {
+        const filename = file.path.split('/').pop();
+        if (filename === 'package.json') {
+          try {
+            const content = await vscode.workspace.fs.readFile(file);
+            const json = JSON.parse(new TextDecoder().decode(content));
+            if (json.dependencies) keywords.push(...Object.keys(json.dependencies));
+            if (json.devDependencies) keywords.push(...Object.keys(json.devDependencies));
+          } catch {}
+        } else if (filename) {
+          keywords.push(filename); // 比如看到 go.mod 就知道是 Go 项目
+        }
+      }
+      
+      // 筛选一些关键库
+      const importantKeys = ['react', 'vue', 'next', 'express', 'nestjs', 'torch', 'tensorflow', 'pandas', 'spring', 'gin', 'flutter', 'ethers', 'web3'];
+      const found = keywords.filter(k => importantKeys.some(i => k.includes(i))).slice(0, 5);
+      
+      if (found.length > 0) {
+        this.projectContext = `Project Tech Stack: ${found.join(', ')}`;
+      }
+    } catch (e) {
+      console.error('Project detection failed:', e);
+    }
+  }
+
+  async generateMessages(code: string, trigger: string = 'writing', language: string = ''): Promise<ChatMessage[]> {
     const config = vscode.workspace.getConfiguration('codeStreamer');
     const apiKey = String(config.get<string>('llm.apiKey', '') || '').trim();
     const baseUrl = String(config.get<string>('llm.baseUrl', '') || '').trim();
@@ -22,32 +59,48 @@ export class AIService {
       throw err;
     }
 
-    return await this.generateAIComments(code, apiKey, baseUrl, model);
+    return await this.generateAIComments(code, apiKey, baseUrl, model, trigger, language);
   }
 
-  private async generateAIComments(code: string, apiKey: string, baseUrl: string, model: string): Promise<ChatMessage[]> {
+  private async generateAIComments(code: string, apiKey: string, baseUrl: string, model: string, trigger: string, language: string): Promise<ChatMessage[]> {
     const unlockedViewers = this.viewerService
       .getViewers()
       .filter(v => v.unlocked)
-      .map(v => v.name)
-      .slice(0, 50); // 防止 prompt 过长
+      .slice(0, 15); // 限制人数，避免 Token 爆炸
 
-    const viewerHint =
-      unlockedViewers.length > 0
-        ? `author 必须从以下列表中选择其一：${unlockedViewers.join('、')}`
-        : 'author 可以使用任意昵称';
+    // 构建角色设定表
+    const rolesDescription = unlockedViewers.map(v => {
+      // 如果有 prompts 仍然利用，如果没有则依靠 description
+      const desc = v.description ? `性格描述："${v.description}"` : '';
+      const samples = v.prompts && v.prompts.length > 0 ? `, 语气参考: ["${v.prompts.slice(0, 3).join('", "')}"]` : '';
+      return `- ${v.name} (${v.tag || '观众'}): ${desc}${samples}`;
+    }).join('\n');
+
+    const triggerDesc = 
+      trigger === 'save' ? '用户刚保存了代码，可能完成了一个功能模块。' :
+      trigger === 'paste' ? '用户刚粘贴了一大段代码（CV工程师行为）。' :
+      trigger === 'error' ? '代码出现了错误/红波浪线，快吐槽！' :
+      '用户正在思考或编写代码。';
 
     const prompt = `你是一个直播间观众弹幕生成器。
-请阅读以下代码片段，并生成 1-3 条短弹幕（口语化、有梗但不低俗）。
+${this.projectContext ? `当前项目背景：${this.projectContext}` : ''}
+语言：${language}
+触发原因：${triggerDesc}
 
-代码：
-\`\`\`
-${code.substring(0, 1000)}
+可用角色列表与性格设定：
+${rolesDescription}
+
+请阅读以下代码片段（光标附近的上下文），并生成 1-3 条短弹幕。
+从上述角色中选择合适的 author（保持人设）。
+
+代码上下文：
+\`\`\`${language}
+${code.substring(0, 2000)}
 \`\`\`
 
 要求：
 - type 只能是 newbie | hater | pro
-- ${viewerHint}
+- author 必须从“可用角色列表”中选择
 - donation 为可选整数（1-100），只有在真的“很赞/很搞笑/很有料”时才给
 - 只输出 JSON（数组），不要输出任何解释性文字
 

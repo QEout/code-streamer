@@ -99,59 +99,60 @@ export function activate(context: vscode.ExtensionContext) {
     updateStatusBar();
   }, 5000);
 
-  const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
+  let lastTriggerTime = 0;
+  const COOLDOWN_NORMAL = 15000;
+  const COOLDOWN_HIGH = 5000;
+
+  // 核心触发函数
+  const triggerAI = async (reason: 'idle' | 'save' | 'paste' | 'error', priority: 'normal' | 'high') => {
+    const now = Date.now();
+    const cooldown = priority === 'high' ? COOLDOWN_HIGH : COOLDOWN_NORMAL;
+    
+    if (now - lastTriggerTime < cooldown) {
+      return; // Cooldown active
     }
 
-    const config = vscode.workspace.getConfiguration('codeStreamer');
-    const debounceMs = config.get<number>('debounceMs', 1200);
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
 
-    debounceTimer = setTimeout(async () => {
-      const content = event.document.getText();
-      // Only analyze if content is not too short
-      if (content.length < 10) return;
+    // Sliding Window: 光标前30行 + 后5行
+    const cursorLine = editor.selection.active.line;
+    const startLine = Math.max(0, cursorLine - 30);
+    const endLine = Math.min(editor.document.lineCount - 1, cursorLine + 5);
+    const range = new vscode.Range(startLine, 0, endLine, 1000);
+    const contextCode = editor.document.getText(range);
+    const language = editor.document.languageId;
 
-      console.log('Code Streamer: Analyzing code change...');
-      // 未配置：不刷聊天区，只走 VSCode 通知
-      const cfg = vscode.workspace.getConfiguration('codeStreamer');
-      const apiKey = String(cfg.get<string>('llm.apiKey', '') || '').trim();
-      const baseUrl = String(cfg.get<string>('llm.baseUrl', '') || '').trim();
-      if (!apiKey || !baseUrl) {
-        vscode.window
-          .showErrorMessage('未配置 AI 弹幕：请在「⚙️ 设置」中填写 Base URL 与 API Key。', '打开设置')
-          .then(sel => {
-            if (sel === '打开设置') {
+    if (contextCode.length < 10) return;
+
+    lastTriggerTime = now;
+    console.log(`[Code Streamer] Trigger: ${reason}, Priority: ${priority}`);
+
+    // Config check
+    const cfg = vscode.workspace.getConfiguration('codeStreamer');
+    const apiKey = String(cfg.get<string>('llm.apiKey', '') || '').trim();
+    const baseUrl = String(cfg.get<string>('llm.baseUrl', '') || '').trim();
+
+    if (!apiKey || !baseUrl) {
+      // 仅在非 idle 触发时提示，避免打扰
+      if (reason !== 'idle') {
+        vscode.window.showInformationMessage('Code Streamer: 请配置 API Key 以启用 AI 弹幕', '打开设置')
+          .then(s => {
+            if (s === '打开设置') {
               vscode.commands.executeCommand('codeStreamer.focus');
               bannerProvider.showSettings();
             }
           });
-        return;
       }
+      return;
+    }
 
-      let messages;
-      try {
-        messages = await aiService.generateMessages(content);
-      } catch (error: any) {
-        const msg = typeof error?.message === 'string' ? error.message : '请求失败';
-        vscode.window
-          .showErrorMessage(`AI 请求失败：${msg}`, '打开设置')
-          .then(sel => {
-            if (sel === '打开设置') {
-              vscode.commands.executeCommand('codeStreamer.focus');
-              bannerProvider.showSettings();
-            }
-          });
-        return;
-      }
-
-      console.log(`Code Streamer: Generated ${messages.length} messages.`);
+    try {
+      const messages = await aiService.generateMessages(contextCode, reason, language);
       
+      // Process messages
       messages.forEach(c => {
-        if (c.donation) {
-          totalDonations += c.donation;
-        }
-        // 如果消息还没有观众信息，尝试从观众列表补充
+        if (c.donation) totalDonations += c.donation;
         if (!c.avatar || !c.tag) {
           const viewers = viewerService.getViewers();
           const viewer = viewers.find(v => v.name === c.author || v.name.includes(c.author) || c.author.includes(v.name));
@@ -168,41 +169,99 @@ export function activate(context: vscode.ExtensionContext) {
       bannerProvider.addMessages(messages);
       updateStatusBar();
 
-      // 累计收益 >= 1000 触发一次求 Star
+      // Check Viewer Unlock
+      const unlockedViewers = viewerService.checkUnlock(totalDonations);
+      if (unlockedViewers.length > 0) {
+        bannerProvider.updateViewers(viewerService.getViewers());
+        unlockedViewers.forEach(v => {
+          bannerProvider.addMessages([{
+            id: `unlock_${v.id}`,
+            type: 'system',
+            author: '系统',
+            text: `🎉 新观众解锁：${v.name} (${v.description})`,
+            messageBackground: 'linear-gradient(90deg, #ffd700 0%, #fdb931 100%)'
+          }]);
+          vscode.window.showInformationMessage(`Code Streamer: 新观众 ${v.name} 已解锁！`);
+        });
+      }
+
+      // Check Star Request
       const hasAskedForStar = context.globalState.get<boolean>('hasAskedForStar', false);
       if (!hasAskedForStar && totalDonations >= 1000) {
         context.globalState.update('hasAskedForStar', true);
-        bannerProvider.addMessages([
-          {
-            id: 'star_req',
-            type: 'system',
-            author: '系统',
-            text: '看来你已经是个成熟的主播了！去 GitHub 给作者点个 Star 鼓励一下吧？',
-            action: 'openGitHubStar'
-          }
-        ]);
+        bannerProvider.addMessages([{
+          id: 'star_req',
+          type: 'system',
+          author: '系统',
+          text: '看来你已经是个成熟的主播了！去 GitHub 给作者点个 Star 鼓励一下吧？',
+          action: 'openGitHubStar'
+        }]);
       }
 
-      // 检查是否有重要消息（比如乔布斯、Linus等知名人物）
+      // Check Important Messages
       const importantAuthors = ['乔布斯', 'Steve Jobs', 'Linus', 'Linus Torvalds'];
-      const hasImportantMessage = messages.some(c => 
-        c.author && importantAuthors.some(author => c.author!.includes(author))
-      );
-      
-      if (hasImportantMessage && !isPanelVisible) {
-        const importantComment = messages.find(c => 
-          c.author && importantAuthors.some(author => c.author!.includes(author))
-        );
-        if (importantComment) {
-          pendingImportantMessage = `${importantComment.author}: ${importantComment.text}`;
-          // 状态栏闪烁提醒
-          updateStatusBar(true);
-        }
+      const importantComment = messages.find(c => c.author && importantAuthors.some(a => c.author!.includes(a)));
+      if (importantComment && !isPanelVisible) {
+        pendingImportantMessage = `${importantComment.author}: ${importantComment.text}`;
+        updateStatusBar(true);
       }
+
+    } catch (error: any) {
+      console.error('AI Request Failed:', error);
+      if (reason === 'save' || reason === 'error') {
+         // 仅高优先级错误提示
+         vscode.window.showWarningMessage(`Code Streamer AI Error: ${error?.message || 'Unknown'}`);
+      }
+    }
+  };
+
+  const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+
+    // 1. Paste Detection
+    const isPaste = event.contentChanges.some(c => c.text.length > 50 && c.text.includes('\n'));
+    if (isPaste) {
+      triggerAI('paste', 'high'); // Paste is immediate but respects high cooldown
+      return;
+    }
+
+    // 2. Idle Detection (Debounce)
+    // 默认防抖时间加长到 3000ms
+    const config = vscode.workspace.getConfiguration('codeStreamer');
+    const debounceMs = Math.max(config.get<number>('debounceMs', 3000), 3000);
+
+    debounceTimer = setTimeout(() => {
+      triggerAI('idle', 'normal');
     }, debounceMs);
   });
 
+  // 3. Save Detection
+  const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(() => {
+    triggerAI('save', 'high');
+  });
+
+  // 4. Error Detection
+  let lastErrorTrigger = 0;
+  const onDidChangeDiagnostics = vscode.languages.onDidChangeDiagnostics(e => {
+    const now = Date.now();
+    if (now - lastErrorTrigger < 30000) return; // Error cooldown 30s
+
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+
+    const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+    const hasError = diagnostics.some(d => d.severity === vscode.DiagnosticSeverity.Error);
+
+    if (hasError) {
+      lastErrorTrigger = now;
+      triggerAI('error', 'high');
+    }
+  });
+
   context.subscriptions.push(onDidChangeTextDocument);
+  context.subscriptions.push(onDidSaveTextDocument);
+  context.subscriptions.push(onDidChangeDiagnostics);
+
 
   // Command to manually start or trigger
   context.subscriptions.push(

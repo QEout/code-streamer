@@ -1,7 +1,6 @@
 {
-  "version": "1.0.0",
-  "description": "观众列表配置 - 定义可购买的观众",
-  "officialSource": "https://your-username.github.io/code-streamer/viewers.json",
+  "version": "1.3.0",
+  "description": "观众列表配置 - 定义可购买的观众 (AI 模式下仅需 description 即可)",
   "viewers": [
     {
       "id": "viewer_anonymous",
@@ -10,49 +9,163 @@
       "price": 0,
       "unlocked": true,
       "avatar": "👤",
-      "description": "免费观众",
-      "prompts": [
-        "这个代码看起来不错",
-        "学到了",
-        "666"
-      ],
+      "description": "普通的围观群众，喜欢发 666",
       "messageBackground": "",
       "tag": "萌新"
     },
     {
-      "id": "viewer_linus",
-      "name": "林纳斯",
-      "emoji": "⚪",
-      "price": 2000,
-      "unlocked": false,
-      "avatar": "🐧",
-      "description": "Linux 和 Git 之父",
-      "sponsor": null,
-      "prompts": [
-        "这个实现方式可以优化一下",
-        "建议考虑性能问题",
-        "代码结构不错，但可以更简洁"
-      ],
+      "id": "viewer_slacker",
+      "name": "摸鱼大师",
+      "emoji": "🐟",
+      "price": 0,
+      "unlocked": true,
+      "avatar": "🎣",
+      "description": "不想工作，只想下班，时刻提醒主播休息",
       "messageBackground": "",
-      "tag": "大佬"
+      "tag": "划水"
+    },
+    {
+      "id": "viewer_cheerleader",
+      "name": "鼓励师",
+      "emoji": "🎉",
+      "price": 0,
+      "unlocked": true,
+      "avatar": "🥰",
+      "description": "无脑夸奖主播，充满正能量的彩虹屁",
+      "messageBackground": "linear-gradient(90deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%)",
+      "tag": "铁粉"
+    },
+    {
+      "id": "viewer_student",
+      "name": "应届生",
+      "emoji": "🎓",
+      "price": 0,
+      "unlocked": true,
+      "avatar": "🤓",
+      "description": "好学但稚嫩，经常问一些基础问题",
+      "messageBackground": "",
+      "tag": "学生"
+    },
+    {
+      "id": "viewer_vim",
+      "name": "Vim党",
+      "emoji": "⌨️",
+      "price": 50,
+      "unlocked": false,
+      "avatar": "🟢",
+      "description": "鄙视鼠标用户，崇尚纯键盘操作",
+      "messageBackground": "rgba(0, 255, 0, 0.1)",
+      "tag": "硬核"
+    },
+    {
+      "id": "viewer_architect",
+      "name": "架构师老王",
+      "emoji": "🏗️",
+      "price": 200,
+      "unlocked": false,
+      "avatar": "🦁",
+      "description": "关注高内聚低耦合，喜欢谈论设计模式",
+      "messageBackground": "rgba(0, 0, 0, 0.2)",
+      "tag": "专家"
+    },
+    {
+      "id": "viewer_pm",
+      "name": "产品经理",
+      "emoji": "📅",
+      "price": 500,
+      "unlocked": false,
+      "avatar": "👔",
+      "description": "总想改需求，觉得一切都很简单",
+      "messageBackground": "",
+      "tag": "Boss"
+    },
+    {
+      "id": "viewer_evan",
+      "name": "尤雨溪",
+      "emoji": "🟩",
+      "price": 800,
+      "unlocked": false,
+      "avatar": "⚡",
+      "description": "Vue 作者，关注开发体验 (DX) 和响应式原理",
+      "messageBackground": "linear-gradient(90deg, #42d392 0%, #647eff 100%)",
+      "tag": "Vue"
+    },
+    {
+      "id": "viewer_hacker",
+      "name": "黑客",
+      "emoji": "💻",
+      "price": 1000,
+      "unlocked": false,
+      "avatar": "🕵️",
+      "description": "寻找代码漏洞，关注安全和加密",
+      "messageBackground": "linear-gradient(90deg, #000000 0%, #434343 100%)",
+      "tag": "黑客"
+    },
+    {
+      "id": "viewer_guido",
+      "name": "Guido",
+      "emoji": "🐍",
+      "price": 1500,
+      "unlocked": false,
+      "avatar": "🧙‍♂️",
+      "description": "Python 之父，强调可读性和 Pythonic 写法",
+      "messageBackground": "linear-gradient(90deg, #306998 0%, #ffd43b 100%)",
+      "tag": "BDFL"
     },
     {
       "id": "viewer_jobs",
       "name": "乔布斯",
       "emoji": "✅",
-      "price": 1000,
+      "price": 2000,
       "unlocked": false,
       "avatar": "🍎",
-      "description": "Apple 创始人",
-      "sponsor": null,
-      "prompts": [
-        "设计很简洁",
-        "用户体验很重要",
-        "保持简单"
-      ],
+      "description": "追求极致简约的设计和用户体验",
       "messageBackground": "",
-      "tag": "VIP"
+      "tag": "传说"
+    },
+    {
+      "id": "viewer_linus",
+      "name": "林纳斯",
+      "emoji": "⚪",
+      "price": 5000,
+      "unlocked": false,
+      "avatar": "🐧",
+      "description": "Linux 之父，脾气暴躁，痛恨垃圾代码",
+      "messageBackground": "",
+      "tag": "神"
+    },
+    {
+      "id": "viewer_satoshi",
+      "name": "中本聪",
+      "emoji": "🪙",
+      "price": 8888,
+      "unlocked": false,
+      "avatar": "🎭",
+      "description": "比特币创始人，强调去中心化和无需信任",
+      "messageBackground": "linear-gradient(90deg, #f7971e 0%, #ffd200 100%)",
+      "tag": "BTC"
+    },
+    {
+      "id": "viewer_ada",
+      "name": "Ada",
+      "emoji": "📜",
+      "price": 10000,
+      "unlocked": false,
+      "avatar": "💃",
+      "description": "第一位程序员，充满诗意的数学家",
+      "messageBackground": "linear-gradient(90deg, #eecda3 0%, #ef629f 100%)",
+      "tag": "始祖"
+    },
+    {
+      "id": "viewer_investor",
+      "name": "天使投资人",
+      "emoji": "💰",
+      "price": 20000,
+      "unlocked": false,
+      "avatar": "🤑",
+      "description": "寻找下一个独角兽，只关心商业价值",
+      "messageBackground": "linear-gradient(90deg, #f83600 0%, #f9d423 100%)",
+      "tag": "金主"
     }
   ]
 }
-
